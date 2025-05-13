@@ -1,0 +1,21 @@
+# Ini adalah Dockerfile.dev untuk pengembangan
+# Gunakan untuk ketiga layanan (api-gateway, tenant-management-service, connection-pool-manager)
+
+FROM golang:1.24-alpine
+
+WORKDIR /app
+
+# Instal air untuk hot-reload
+RUN go install github.com/cosmtrek/air@latest
+
+# Copy Go modules manifests
+COPY go.mod go.sum* ./
+
+# Install dependencies
+RUN go mod download
+
+# Salin seluruh kode sumber
+COPY . .
+
+# Air akan melakukan hot-reload aplikasi saat kode berubah
+CMD ["air", "-c", ".air.toml"]

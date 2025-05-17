@@ -82,7 +82,11 @@ func (h *TestHelper) CreateTestCertificates() error {
 	if err != nil {
 		return err
 	}
-	defer certOut.Close()
+	defer func() {
+		if err := certOut.Close(); err != nil {
+			h.t.Errorf("Failed to close certificate file: %v", err)
+		}
+	}()
 
 	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
 		return err
@@ -93,7 +97,11 @@ func (h *TestHelper) CreateTestCertificates() error {
 	if err != nil {
 		return err
 	}
-	defer keyOut.Close()
+	defer func() {
+		if err := keyOut.Close(); err != nil {
+			h.t.Errorf("Failed to close key file: %v", err)
+		}
+	}()
 
 	privateKeyDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {

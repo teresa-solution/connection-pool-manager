@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
@@ -150,18 +151,20 @@ func setupServer(t *testing.T, pool IConnectionPool) (ConnectionPoolServiceClien
 		return lis.Dial()
 	}
 
-	conn, err := grpc.DialContext(
-		context.Background(),
-		"bufnet",
+	// Use grpc.NewClient instead of grpc.DialContext
+	clientOpts := []grpc.DialOption{
 		grpc.WithContextDialer(dialer),
-		grpc.WithInsecure(),
-	)
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+	conn, err := grpc.NewClient("bufnet", clientOpts...)
 	require.NoError(t, err)
 
 	client := NewConnectionPoolServiceClient(conn)
 
 	cleanup := func() {
-		conn.Close()
+		if err := conn.Close(); err != nil {
+			t.Errorf("Failed to close connection: %v", err)
+		}
 		srv.Stop()
 	}
 

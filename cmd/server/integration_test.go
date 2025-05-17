@@ -87,7 +87,9 @@ func TestNewApplication_WithValidCerts(t *testing.T) {
 	if err := os.MkdirAll(certsDir, 0755); err != nil {
 		t.Fatalf("Failed to create certs directory: %v", err)
 	}
-	defer os.RemoveAll(certsDir)
+	if err := os.RemoveAll(certsDir); err != nil {
+		t.Errorf("Failed to remove certs directory: %v", err)
+	}
 
 	// Create certificates in the expected location
 	if err := helper.CreateTestCertificates(); err != nil {
@@ -124,7 +126,13 @@ func TestNewApplication_WithValidCerts(t *testing.T) {
 	}
 
 	if app != nil {
-		defer app.listener.Close()
+		defer func() {
+			if app.listener != nil {
+				if err := app.listener.Close(); err != nil {
+					t.Errorf("Failed to close listener: %v", err)
+				}
+			}
+		}()
 
 		if app.config.Port == 0 {
 			t.Error("Application port not set")
@@ -189,7 +197,11 @@ func TestCreateTCPListener_PortInUse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create first listener: %v", err)
 	}
-	defer listener1.Close()
+	defer func() {
+		if err := listener1.Close(); err != nil {
+			t.Fatalf("Failed to close listener1: %v", err)
+		}
+	}()
 
 	// Get the port that was assigned
 	addr := listener1.Addr().(*net.TCPAddr)
@@ -198,7 +210,9 @@ func TestCreateTCPListener_PortInUse(t *testing.T) {
 	// Try to create another listener on the same port
 	listener2, err := createTCPListener(port)
 	if err == nil {
-		listener2.Close()
+		if err := listener2.Close(); err != nil {
+			t.Errorf("Failed to close listener2: %v", err)
+		}
 		t.Error("Expected createTCPListener to fail when port is in use")
 	}
 }
@@ -327,6 +341,8 @@ func BenchmarkTCPListenerCreation(b *testing.B) {
 		if err != nil {
 			b.Fatalf("Failed to create listener: %v", err)
 		}
-		listener.Close()
+		if err := listener.Close(); err != nil {
+			b.Errorf("Failed to close listener: %v", err)
+		}
 	}
 }

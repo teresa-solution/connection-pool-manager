@@ -78,7 +78,7 @@ func TestParseFlags(t *testing.T) {
 }
 
 func TestSetupLogger(t *testing.T) {
-	// Capture the original logger
+	// Capture the original logger``
 	originalLogger := log.Logger
 	defer func() { log.Logger = originalLogger }()
 
@@ -153,7 +153,9 @@ func TestCreateTCPListener(t *testing.T) {
 			}
 
 			if !tt.wantErr && listener != nil {
-				listener.Close()
+				if err := listener.Close(); err != nil {
+					t.Errorf("Failed to close listener: %v", err)
+				}
 			}
 		})
 	}
@@ -165,6 +167,7 @@ func TestSetupGRPCServer(t *testing.T) {
 
 	if server == nil {
 		t.Error("setupGRPCServer() returned nil")
+		return // Early return to avoid the nil dereference
 	}
 
 	// Clean up
@@ -250,6 +253,7 @@ func TestCreateHTTPServer(t *testing.T) {
 
 	if server == nil {
 		t.Error("createHTTPServer() returned nil")
+		return
 	}
 
 	if server.Addr != addr {
@@ -268,7 +272,11 @@ func TestStartGRPCServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create listener: %v", err)
 	}
-	defer listener.Close()
+	defer func() {
+		if err := listener.Close(); err != nil {
+			t.Errorf("Failed to close listener: %v", err)
+		}
+	}()
 
 	// Start the server in a separate goroutine
 	errChan := make(chan error, 1)
@@ -340,7 +348,10 @@ func TestNewApplication(t *testing.T) {
 	if err == nil {
 		t.Error("Expected NewApplication() to fail due to missing certificate files")
 		if app != nil {
-			app.listener.Close()
+			if err := app.listener.Close(); err != nil {
+				t.Errorf("Failed to close app listener: %v", err)
+			}
+
 		}
 	}
 
@@ -425,7 +436,9 @@ func BenchmarkParseFlags(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		testFlags := flag.NewFlagSet("test", flag.ContinueOnError)
 		testFlags.Int("port", 50052, "Port gRPC server")
-		testFlags.Parse([]string{})
+		if err := testFlags.Parse([]string{}); err != nil {
+			b.Fatalf("Failed to parse test flags: %v", err)
+		}
 	}
 }
 

@@ -84,7 +84,9 @@ func setupHTTPMux() *http.ServeMux {
 // healthHandler handles health check requests
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	if _, err := w.Write([]byte("OK")); err != nil {
+		log.Error().Err(err).Msg("Failed to write health check response")
+	}
 }
 
 // createHTTPServer creates the HTTP server for health checks and metrics

@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package connectionpool;
+
+option go_package = "github.com/teresa-solution/connection-pool-manager/internal/grpc/connectionpool";
+
+service ConnectionPoolService {
+  // Request a connection from the pool
+  rpc GetConnection (ConnectionRequest) returns (ConnectionResponse) {}
+
+  // Release a connection back to the pool
+  rpc ReleaseConnection (ConnectionRelease) returns (ReleaseResponse) {}
+
+  // Get pool statistics
+  rpc GetPoolStats (StatsRequest) returns (StatsResponse) {}
+}
+
+message ConnectionRequest {
+  string tenant_id = 1;
+  string dsn = 2; // Data Source Name for PostgreSQL
+}
+
+message ConnectionResponse {
+  string connection_id = 1;
+  string error = 2;
+}
+
+message ConnectionRelease {
+  string connection_id = 1;
+}
+
+message ReleaseResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message StatsRequest {
+  string tenant_id = 1;
+}
+
+message StatsResponse {
+  int32 active_connections = 1;
+  int32 idle_connections = 2;
+  int32 total_connections = 3;
+  string error = 4;
+}

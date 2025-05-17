@@ -9,63 +9,65 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/teresa-solution/connection-pool-manager/internal/service"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 func main() {
-	// Konfigurasi logging
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
-	// Parse flag command line
-	var (
-		port = flag.Int("port", 50052, "Port gRPC server")
-	)
+	var port = flag.Int("port", 50052, "Port gRPC server")
 	flag.Parse()
 
 	log.Info().Msgf("Starting Connection Pool Manager on port %d", *port)
 
-	// Setup gRPC server
+	// Load TLS credentials
+	certFile := "certs/cert.pem"
+	keyFile := "certs/key.pem"
+	creds, err := credentials.NewServerTLSFromFile(certFile, keyFile)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to load TLS credentials")
+	}
+
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to listen")
 	}
 
-	server := grpc.NewServer()
+	server := grpc.NewServer(grpc.Creds(creds))
+	service.RegisterServer(server, service.NewConnectionPoolServiceServer())
 
-	// Daftarkan service gRPC (akan diimplementasikan nanti)
-	// pb.RegisterConnectionPoolServiceServer(server, &service.ConnectionPoolServiceServer{})
-
-	// Start server in goroutine
 	go func() {
-		log.Info().Msgf("gRPC server listening at %v", lis.Addr())
+		log.Info().Msgf("gRPC server listening at %v with TLS", lis.Addr())
 		if err := server.Serve(lis); err != nil {
 			log.Fatal().Err(err).Msg("Failed to start gRPC server")
 		}
 	}()
 
-	// Setup HTTP server for health checks and metrics
+	// HTTP server for health and metrics
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("OK"))
 		})
+		mux.Handle("/metrics", promhttp.Handler())
 
 		httpServer := &http.Server{
 			Addr:    ":8082",
 			Handler: mux,
 		}
-
-		log.Info().Msg("HTTP server for health checks started on port 8082")
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Info().Msg("HTTPS server for health checks and metrics started on port 8082")
+		if err := httpServer.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
 			log.Error().Err(err).Msg("HTTP server error")
 		}
 	}()
 
-	// Graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit

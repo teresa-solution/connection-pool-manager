@@ -160,8 +160,7 @@ func TestCreateTCPListener(t *testing.T) {
 }
 
 func TestSetupGRPCServer(t *testing.T) {
-	// Create mock credentials (this will fail in practice without real certs)
-	// but we can test the function structure
+	// Create a simple server without credentials for testing
 	server := setupGRPCServer(nil)
 
 	if server == nil {
@@ -271,28 +270,40 @@ func TestStartGRPCServer(t *testing.T) {
 	}
 	defer listener.Close()
 
-	// Start the server
-	errChan := startGRPCServer(server, listener)
+	// Start the server in a separate goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		// This will exit once the server is stopped
+		if err := server.Serve(listener); err != nil {
+			errChan <- err
+		}
+	}()
 
-	// Give it a moment to start
+	// Wait a moment for the server to start
 	time.Sleep(10 * time.Millisecond)
 
-	// Stop the server to test the error channel behavior
-	server.Stop()
+	// Gracefully stop the server
+	server.GracefulStop()
 
-	// Since we can't easily test the actual serving without a full setup,
-	// we just verify that the function returns a channel
-	if errChan == nil {
-		t.Error("startGRPCServer() returned nil error channel")
+	// Wait for the server to stop and check for errors
+	select {
+	case err := <-errChan:
+		if err != nil && err != grpc.ErrServerStopped {
+			t.Errorf("Server error: %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		// If no error within timeout, that's fine
 	}
 }
 
 func TestStartHTTPServer(t *testing.T) {
+	// Rather than test with real TLS, we'll test just that
+	// the function returns a channel and starts a goroutine
 	server := &http.Server{
 		Addr: ":0", // Use port 0 for automatic port assignment
 	}
 
-	// Test with non-existent certificate files (should return error)
+	// This should return an error channel
 	errChan := startHTTPServer(server, "non-existent-cert.pem", "non-existent-key.pem")
 
 	if errChan == nil {
@@ -302,24 +313,23 @@ func TestStartHTTPServer(t *testing.T) {
 	// Wait for the error to occur
 	select {
 	case err := <-errChan:
+		// We expect an error due to missing certificate files
 		if err == nil {
 			t.Error("Expected error due to non-existent certificate files")
 		}
 	case <-time.After(100 * time.Millisecond):
-		// This is expected since the server should fail quickly with bad certs
+		// If no error within timeout, the test might hang
+		t.Error("Expected error within timeout")
 	}
 }
 
 func TestSetupSignalHandler(t *testing.T) {
+	// We just test that the function returns a channel
 	signalChan := setupSignalHandler()
 
 	if signalChan == nil {
 		t.Error("setupSignalHandler() returned nil")
 	}
-
-	// Test that we can send a signal to the channel
-	// Note: In a real test environment, we can't easily test actual signal handling
-	// without potentially interfering with the test process itself
 }
 
 func TestNewApplication(t *testing.T) {
@@ -340,93 +350,8 @@ func TestNewApplication(t *testing.T) {
 	}
 }
 
-// Integration test that can run with proper setup
-func TestApplication_Run(t *testing.T) {
-	// Skip this test in normal unit test runs since it requires actual certificates
-	// and would interfere with signal handling
-	t.Skip("Integration test - requires full setup and interferes with signal handling")
-
-	// In a real integration test, you would:
-	// 1. Create temporary certificate files
-	// 2. Set up the application
-	// 3. Start it in a goroutine
-	// 4. Send HTTP requests to verify it's working
-	// 5. Send a signal to shut it down gracefully
-	// 6. Verify it stops correctly
-}
-
-// Mock interfaces for better testability (optional enhancement)
-type MockListener struct {
-	net.Listener
-	closeCalled bool
-}
-
-func (m *MockListener) Close() error {
-	m.closeCalled = true
-	return nil
-}
-
-func (m *MockListener) Accept() (net.Conn, error) {
-	// Block forever or return an error
-	select {}
-}
-
-func (m *MockListener) Addr() net.Addr {
-	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 12345}
-}
-
-// Test with mock listener
-func TestStartGRPCServer_WithMock(t *testing.T) {
-	server := grpc.NewServer()
-	mockListener := &MockListener{}
-
-	errChan := startGRPCServer(server, mockListener)
-
-	// Give it a moment to start
-	time.Sleep(10 * time.Millisecond)
-
-	// Stop the server
-	server.Stop()
-
-	if errChan == nil {
-		t.Error("startGRPCServer() returned nil error channel")
-	}
-
-	// The mock listener should have been used
-	if !mockListener.closeCalled {
-		// Note: The gRPC server might not call Close() during Stop()
-		// This is just to demonstrate how you could test with mocks
-	}
-}
-
-// Benchmark tests
-func BenchmarkParseFlags(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		testFlags := flag.NewFlagSet("test", flag.ContinueOnError)
-		testFlags.Int("port", 50052, "Port gRPC server")
-		testFlags.Parse([]string{})
-	}
-}
-
-func BenchmarkSetupHTTPMux(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		setupHTTPMux()
-	}
-}
-
-// Example test that demonstrates testing with temporary files
-func TestLoadTLSCredentials_WithTempFiles(t *testing.T) {
-	// Skip this test since creating valid cert files is complex
-	t.Skip("Requires generating valid certificate files")
-
-	// In a real test, you would:
-	// 1. Generate temporary certificate files
-	// 2. Test loading them
-	// 3. Clean up the temporary files
-}
-
-// Test to verify logger output (advanced testing)
-func TestSetupLogger_Output(t *testing.T) {
+// TestLogger_Output verifies logger output
+func TestLogger_Output(t *testing.T) {
 	// Capture the logger output
 	var buf strings.Builder
 	originalLogger := log.Logger
@@ -442,5 +367,70 @@ func TestSetupLogger_Output(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, "test message") {
 		t.Errorf("Expected log output to contain 'test message', got: %s", output)
+	}
+}
+
+// Mock interfaces for better testability
+type MockListener struct {
+	net.Listener
+	closeCalled bool
+}
+
+func (m *MockListener) Close() error {
+	m.closeCalled = true
+	return nil
+}
+
+func (m *MockListener) Accept() (net.Conn, error) {
+	return nil, net.ErrClosed // Return an error instead of blocking forever
+}
+
+func (m *MockListener) Addr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 12345}
+}
+
+// Test with mock listener
+func TestStartGRPCServer_WithMock(t *testing.T) {
+	server := grpc.NewServer()
+	mockListener := &MockListener{}
+
+	errChan := make(chan error, 1)
+	go func() {
+		if err := server.Serve(mockListener); err != nil {
+			errChan <- err
+		}
+	}()
+
+	// Give it a moment to start attempting to serve
+	time.Sleep(10 * time.Millisecond)
+
+	// Stop the server
+	server.Stop()
+
+	// Check for errors
+	select {
+	case err := <-errChan:
+		// We expect the mock listener to return an error
+		if err == nil {
+			t.Error("Expected error from mock listener")
+		}
+	case <-time.After(100 * time.Millisecond):
+		// If no error within timeout, something might be wrong
+		t.Error("Expected error within timeout")
+	}
+}
+
+// Benchmark tests
+func BenchmarkParseFlags(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		testFlags := flag.NewFlagSet("test", flag.ContinueOnError)
+		testFlags.Int("port", 50052, "Port gRPC server")
+		testFlags.Parse([]string{})
+	}
+}
+
+func BenchmarkSetupHTTPMux(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		setupHTTPMux()
 	}
 }

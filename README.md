@@ -1,205 +1,165 @@
-# Connection Pool Manager
+# 🌊 Teresa Connection Pool Manager
 
-A secure, multi-tenant connection pool management service built in Go that provides connection pooling capabilities for PostgreSQL databases over gRPC.
+[![Go Version](https://img.shields.io/badge/Go-1.20+-00ADD8?style=for-the-badge&logo=go)](https://golang.org/doc/go1.20)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
+[![gRPC](https://img.shields.io/badge/gRPC-supported-brightgreen?style=for-the-badge&logo=google)](https://grpc.io/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-supported-blue?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
-## Overview
+A high-performance, multi-tenant connection pool manager for PostgreSQL databases with gRPC interface. Perfect for applications that need to manage database connections across multiple tenants efficiently.
 
-Connection Pool Manager is a service that manages database connection pools across multiple tenants. It provides a secure gRPC API for requesting and releasing database connections and retrieving pool statistics.
+## ✨ Features
 
-Key features:
-- Multi-tenant connection pooling
-- Secure gRPC API with TLS
-- HTTP health checks and Prometheus metrics
-- Graceful shutdown handling
-- Connection configuration with sensible defaults
+- **🏢 Multi-tenant support**: Manage database connections for multiple tenants efficiently
+- **🔄 Connection pooling**: Utilize pgx's connection pooling for optimized database access
+- **🔒 TLS encryption**: Secure communication with TLS by default
+- **🔍 Connection metrics**: Track active, idle, and total connections per pool
+- **🏥 Health checks**: Easily monitor service health via HTTP endpoint
+- **📊 Prometheus integration**: Built-in metrics exposed for Prometheus scraping
 
-## Architecture
+## 🏗️ Architecture
 
-The service consists of the following components:
+```
+          ┌─────────────────────┐
+          │                     │
+ gRPC     │  Connection Pool    │
+ Clients  │     Manager         │
+   ───────►                     │    ┌─────────┐
+          │  ┌────────────────┐ │    │         │
+          │  │Pool Manager    │ │    │         │
+          │  │                ├─┼────► Postgres│
+          │  │tenant1:pool1   │ │    │Databases│
+          │  │tenant2:pool1   │ │    │         │
+          │  │tenant3:pool1   │ │    │         │
+          │  └────────────────┘ │    └─────────┘
+          │                     │
+          │  ┌────────────────┐ │    ┌─────────┐
+HTTP      │  │Health & Metrics│ │    │         │
+Clients   │  │                ├─┼────►Prometheus│
+   ───────►  │/health         │ │    │         │
+          │  │/metrics        │ │    │         │
+          │  └────────────────┘ │    └─────────┘
+          │                     │
+          └─────────────────────┘
+```
 
-- **gRPC Server**: Handles client requests for connection management
-- **HTTP Server**: Provides health check endpoint and Prometheus metrics
-- **Connection Pool Manager**: Core logic for creating and managing connection pools
-- **PGX Pool Integration**: Uses the Postgres pgx/pgxpool library for robust connection pooling
+## 🚀 Getting Started
 
-## Prerequisites
+### Prerequisites
 
-- Go 1.20 or higher
+- Go 1.20+
 - PostgreSQL database
-- TLS certificates for secure communication
+- TLS certificates (for secure communication)
 
-## Installation
+### Installation
 
 ```bash
 # Clone the repository
 git clone https://github.com/teresa-solution/connection-pool-manager.git
 cd connection-pool-manager
 
-# Install dependencies
-go mod download
-
 # Build the application
-go build -o connection-pool-manager ./main.go
+go build -o conn-pool-manager ./cmd/server
+
+# Run with default settings
+./conn-pool-manager
 ```
 
-## Configuration
+### Configuration
 
-The application can be configured using command-line flags:
-
-| Flag      | Description                 | Default Value |
-|-----------|-----------------------------| ------------- |
-| `--port`  | Port for the gRPC server    | 50052         |
-
-Additional configuration parameters (not exposed as flags):
-
-| Parameter   | Description                    | Default Value      |
-|-------------|--------------------------------|--------------------|
-| CertFile    | Path to TLS certificate        | certs/cert.pem     |
-| KeyFile     | Path to TLS key                | certs/key.pem      |
-| HTTPPort    | Port for HTTP metrics/health   | :8082              |
-
-### Connection Pool Settings
-
-Each connection pool is configured with the following defaults:
-
-- Max Connections: 20
-- Min Connections: 5
-- Max Connection Lifetime: 30 minutes
-- Max Connection Idle Time: 5 minutes
-
-## Usage
-
-### Starting the server
+The service can be configured with command-line flags:
 
 ```bash
-# Run with default configuration
-./connection-pool-manager
-
-# Run with custom port
-./connection-pool-manager --port 50053
+./conn-pool-manager --port=50052
 ```
 
-### API Endpoints
+Default configuration:
+- gRPC server port: `50052`
+- HTTPS metrics/health port: `8082`
+- TLS certificates path: `certs/cert.pem` and `certs/key.pem`
 
-#### gRPC Endpoints
+## 🔧 Usage
 
-The service implements the following gRPC methods:
+### Using the gRPC API
 
-- `GetConnection`: Request a connection for a tenant
-- `ReleaseConnection`: Release a connection back to the pool
-- `GetPoolStats`: Get statistics about a tenant's connection pool
-
-#### HTTP Endpoints
-
-- `/health`: Health check endpoint that returns HTTP 200 if the service is running
-- `/metrics`: Prometheus metrics endpoint
-
-### Example Client Usage
+The service exposes a gRPC API for connection pool management:
 
 ```go
-package main
+// Get a connection from the pool
+connection, err := client.GetConnection(ctx, &pb.ConnectionRequest{
+    TenantId: "tenant123",
+    Dsn: "host=localhost port=5432 user=admin password=securepassword dbname=tenant_registry",
+})
 
-import (
-	"context"
-	"log"
-	"time"
+// Get pool statistics
+stats, err := client.GetPoolStats(ctx, &pb.StatsRequest{
+    TenantId: "tenant123",
+})
 
-	pb "github.com/teresa-solution/connection-pool-manager/proto"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-)
-
-func main() {
-	// Set up a connection to the server with TLS
-	creds, err := credentials.NewClientTLSFromFile("certs/cert.pem", "")
-	if err != nil {
-		log.Fatalf("Failed to load credentials: %v", err)
-	}
-	
-	conn, err := grpc.Dial("localhost:50052", grpc.WithTransportCredentials(creds))
-	if err != nil {
-		log.Fatalf("Failed to connect: %v", err)
-	}
-	defer conn.Close()
-	
-	client := pb.NewConnectionPoolServiceClient(conn)
-	
-	// Get a connection
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	
-	resp, err := client.GetConnection(ctx, &pb.ConnectionRequest{
-		TenantId: "tenant123",
-		Dsn:      "host=localhost port=5432 user=admin password=securepassword dbname=tenant_registry",
-	})
-	
-	if err != nil {
-		log.Fatalf("Could not get connection: %v", err)
-	}
-	
-	log.Printf("Connection ID: %s", resp.ConnectionId)
-	
-	// Use the connection...
-	
-	// Release the connection
-	releaseResp, err := client.ReleaseConnection(ctx, &pb.ConnectionRelease{
-		ConnectionId: resp.ConnectionId,
-	})
-	
-	if err != nil {
-		log.Fatalf("Could not release connection: %v", err)
-	}
-	
-	log.Printf("Connection released successfully: %v", releaseResp.Success)
-}
+// Release a connection back to the pool
+result, err := client.ReleaseConnection(ctx, &pb.ConnectionRelease{
+    ConnectionId: connection.ConnectionId,
+})
 ```
 
-## TLS Configuration
+### Health Check
 
-The service requires TLS certificates for secure communication. Generate self-signed certificates for development:
+The service exposes an HTTP health check endpoint:
 
 ```bash
-mkdir -p certs
-openssl req -x509 -newkey rsa:4096 -keyout certs/key.pem -out certs/cert.pem -days 365 -nodes
+curl -k https://localhost:8082/health
 ```
 
-For production, use certificates from a trusted certificate authority.
+### Metrics
 
-## Development
+Prometheus metrics are available at:
 
-### Directory Structure
+```bash
+curl -k https://localhost:8082/metrics
+```
+
+## 💡 Key Components
+
+1. **Pool Manager**: Handles connection pooling logic for multiple tenants
+2. **gRPC Service**: Exposes connection management capabilities via gRPC
+3. **Metrics Server**: Provides health checks and Prometheus metrics
+4. **TLS Security**: Ensures secure communication with clients
+
+## 📊 Pool Configuration
+
+Each connection pool is configured with the following default parameters:
+
+- Max connections: `20`
+- Min connections: `5`
+- Max connection lifetime: `30 minutes`
+- Max idle time: `5 minutes`
+
+## 🔐 Security
+
+The service uses TLS for both gRPC and HTTP servers. Make sure to:
+
+1. Generate proper TLS certificates
+2. Store them in the `certs/` directory as `cert.pem` and `key.pem`
+3. Distribute the public certificate to clients
+
+## 📦 Project Structure
 
 ```
 connection-pool-manager/
-├── main.go                 # Application entry point
+├── cmd/
+│   └── server/           # Main application entry point
 ├── internal/
-│   └── service/            # gRPC service implementation
+│   └── service/          # gRPC service implementation
 ├── pkg/
-│   └── pool/               # Connection pool management logic
-├── proto/                  # Protocol buffer definitions
-└── certs/                  # TLS certificates
+│   └── pool/             # Connection pool management logic
+├── proto/                # Protocol Buffers definitions
+├── certs/                # TLS certificates
+└── README.md             # This file
 ```
 
-### Running Tests
-
-```bash
-go test ./...
-```
-
-## Monitoring
-
-The service exposes Prometheus metrics at the `/metrics` endpoint. Key metrics include:
-
-- Active connections per tenant
-- Idle connections per tenant
-- Total connections per tenant
-- Request latency
-- Error rates
-
-## License
-
-[MIT License](LICENSE)
-
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
